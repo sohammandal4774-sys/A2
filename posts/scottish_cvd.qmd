@@ -1,0 +1,325 @@
+---
+title: "Cardiovascular Disease"
+author: "Soham Shankar Mandal"
+date: "2025-10-19"
+format: html
+editor: visual
+categories: [code]
+---
+
+![](images/clipboard-2842977859.png)
+
+# Cardiovascular Disease
+
+EXPERIMENT OBJECTIVE:
+
+This study seeks to analyze the demographic, behavioral, and socioeconomic factors influencing cardiovascular disease prevalence among adults in Scotland, specifically examining patterns across age groups, sex categories, smoking behaviors, social class strata, and area deprivation levels.
+
+## 1. *Setting up R Packages*
+
+```{r}
+# SETUP CHUNK- LIBRARIES
+#| label: setup
+#| echo: false
+library(tidyverse)
+library(mosaic) 
+library(ggformula) 
+library(skimr) 
+library(janitor) 
+library(naniar) 
+library(visdat)
+library(tinytable) 
+library(DT) 
+library(crosstable) 
+library(RColorBrewer)
+library(naniar)
+library(tidyr)
+library(dplyr)
+library(CardioDataSets)
+library(ggplot2)
+
+```
+
+## 2. *Loading Data*
+
+```{r}
+data(package = "CardioDataSets")
+```
+
+## 3. *Examining the Dataset*
+
+```{r}
+dplyr::glimpse(scottish_CVD_df)
+```
+
+```{r}
+skimr::skim(scottish_CVD_df)
+```
+
+```{r}
+scottish_CVD_df_modified <- scottish_CVD_df %>%
+   tidyr::drop_na()
+
+
+glimpse(scottish_CVD_df_modified)
+```
+
+## 4. *Data Dictionary*
+
+## *Quantitative Data*
+
+1.  age (dbl): Respondent’s age in years
+2.  cvddef (dbl): Doctor-diagnosed cardiovascular disease status (0 = no, 1 = yes)
+3.  carstair (dbl): Carstairs deprivation score representing socioeconomic disadvantage
+4.  id (dbl): Respondent identification number
+5.  area (dbl): Geographic area code
+
+## *Qualitative Data*
+
+1.sex (fct): Respondent’s sex (factor with 2 levels: male/female) 2.sc (fct): Social class (factor with 3 levels) 3. smoke (fct): Smoking status (factor with 5 levels)
+
+## 5. *Graphs*
+
+## 1. Among non-smokers, does cardiovascular disease risk increase with age, and does this age-related increase differ between men and women?"
+
+```{r}
+scottish_CVD_nonsmokers <- scottish_CVD_df_modified %>%
+  filter(smoke == "nevr") %>%
+  mutate(age_group = cut(age, 
+                         breaks = c(18, 30, 40, 50, 60, 70, 79),
+                         labels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70-79"),
+                         right = FALSE))
+
+cvd_proportions_nonsmokers <- scottish_CVD_nonsmokers %>%
+  group_by(age_group, sex) %>%
+  summarise(proportion_cvd = mean(cvddef, na.rm = TRUE),
+            .groups = "drop")
+
+gf_col(proportion_cvd ~ age_group, 
+       data = cvd_proportions_nonsmokers,
+       fill = ~sex,
+       position = "dodge") %>%
+  gf_labs(title = "Risk of Cardiovascular Disease (CVD) by Age and Sex (Non-Smokers Only)",
+          x = "Age Group",
+          y = "Proportion with CVD",
+          fill = "Sex") 
+
+```
+
+## 2. Among smokers, does cardiovascular disease risk increase with age, and does this age-related increase differ between men and women?
+
+```{r}
+scottish_CVD_smokers <- scottish_CVD_df_modified %>%
+  filter(smoke != "nevr") %>%
+  mutate(age_group = cut(age, 
+                         breaks = c(18, 30, 40, 50, 60, 70, 79),
+                         labels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70-79"),
+                         right = FALSE))
+
+cvd_proportions_smokers <- scottish_CVD_smokers %>%
+  group_by(age_group, sex) %>%
+  summarise(proportion_cvd = mean(cvddef, na.rm = TRUE),
+            .groups = "drop")
+
+gf_col(proportion_cvd ~ age_group, 
+       data = cvd_proportions_smokers,
+       fill = ~sex,
+       position = "dodge") %>%
+  gf_labs(title = "Risk of Cardiovascular Disease (CVD) by Age and Sex (Smokers Only)",
+          x = "Age Group",
+          y = "Proportion with CVD",
+          fill = "Sex")
+
+```
+
+## 3. How do smoking status and age interact to affect cardiovascular disease risk, and are these patterns different for men and women?
+
+```{r}
+scottish_CVD_mosaic <- scottish_CVD_df_modified %>%
+  mutate(
+    smoking_status = ifelse(smoke == "nevr", "Non-Smoker", "Smoker"),
+    age_group = cut(age, 
+                    breaks = c(18, 30, 40, 50, 60, 70, 79),
+                    labels = c("18-29", "30-39", "40-49", "50-59", "60-69", "70-79"),
+                    right = FALSE),
+    cvd_status = factor(cvddef, 
+                       levels = c(0, 1),
+                       labels = c("No", "Yes"))
+  )
+
+
+mosaic_table <- xtabs(~ smoking_status + age_group + cvd_status + sex, 
+                       data = scottish_CVD_mosaic)
+
+vcd::mosaic(~ smoking_status + age_group + cvd_status | sex,
+            data = mosaic_table,
+            main = "Smoking Status, Age Group, and CVD by Sex",
+            shade = TRUE,
+            legend = TRUE,
+            labeling_args = list(
+              set_varnames = c(
+                smoking_status = "Smoking Status",
+                age_group = "Age Group",
+                cvd_status = "CVD Status (0=No, 1=Yes)",
+                sex = "Sex"
+              )
+            ))
+
+```
+
+## 4. Are people who smoke more likely to have cardiovascular disease, and is this effect different by social class?
+
+```{r}
+scottish_CVD_mosaic2 <- scottish_CVD_df_modified %>%
+  mutate(
+    smoking_category = case_when(
+      smoke == "nevr" ~ "Never",
+      smoke == "ex" ~ "Former",
+      smoke %in% c("mod", "hvy") ~ "Current",
+      TRUE ~ as.character(smoke)
+    ),
+    smoking_category = factor(smoking_category, 
+                             levels = c("Never", "Former", "Current")),
+    cvd_status = factor(cvddef, 
+                       levels = c(0, 1),
+                       labels = c("No", "Yes"))
+  )
+
+mosaic_table2 <- xtabs(~ smoking_category + sc + cvd_status, 
+                       data = scottish_CVD_mosaic2)
+
+vcd::mosaic(~ smoking_category + sc + cvd_status,
+            data = mosaic_table2,
+            main = "Smoking Status, Social Class, and CVD",
+            shade = TRUE,
+            legend = TRUE,
+            labeling_args = list(
+              set_varnames = c(
+                smoking_category = "Smoking Status",
+                sc = "Social Class",
+                cvd_status = "CVD Status"
+              )
+            ))
+
+```
+
+## 5. Does Risk of CVD Increase with Age and Deprivation?
+
+```{r}
+
+gf_point(age ~ carstair, 
+         data = scottish_CVD_df_modified,
+         color = ~factor(cvddef, labels = c("No CVD", "CVD")),
+         alpha = 0.4,
+         size = 2) %>%
+  gf_labs(title = "Does Risk of CVD Increase with Age and Deprivation?",
+          x = "Carstairs Deprivation Score (Higher = More Deprived)",
+          y = "Age (years)",
+          color = "CVD Status")
+
+
+
+```
+
+## 6. Do smokers live in more deprived areas than non-smokers, and does this relationship differ between men and women?
+
+```{r}
+
+scottish_CVD_smoking <- scottish_CVD_df_modified %>%
+  filter(!is.na(smoke), !is.na(carstair), !is.na(sex)) %>%
+  mutate(
+    smoking_category = case_when(
+      smoke == "nevr" ~ "Never",
+      smoke == "ex" ~ "Former",
+      smoke == "mod" ~ "Moderate",
+      smoke == "hvy" ~ "Heavy",
+      TRUE ~ as.character(smoke)
+    ),
+    smoking_category = factor(smoking_category, 
+                             levels = c("Never", "Former", "Moderate", "Heavy"))
+  ) %>%
+  filter(!is.na(smoking_category))
+
+ggplot(scottish_CVD_smoking, aes(x = smoking_category, y = carstair)) +
+  geom_boxplot() +
+  facet_wrap(~ sex) +
+  labs(title = "Deprivation Level by Smoking Status and Sex",
+       x = "Smoking Status",
+       y = "Carstairs Deprivation Score") +
+  theme_minimal() 
+
+```
+
+## 6. *Summary*
+
+## Graph 1: CVD Risk by Age and Sex (Non-Smokers Only)
+
+## Key Findings:
+
+1.  CVD risk increases dramatically with age even among non-smokers, rising from \~8% in the 18-29 age group to over 50% in the 70-79 age group.
+
+2.  There's a clear age-related progression, with the steepest increase occurring after age 50.
+
+## Unexpected Discovery:
+
+In the oldest age group (70-79), females actually have higher CVD prevalence than males (\~55% vs \~42%), which contradicts the typical pattern seen in younger age groups where males have higher risk. This reversal suggests that biological aging may affect women's cardiovascular health more severely in later life, possibly related to post-menopausal changes.
+
+## Graph 2: CVD Risk by Age and Sex (Smokers Only)
+
+## Key Findings:
+
+1.  Smokers show substantially higher CVD rates than non-smokers across all age groups, with prevalence reaching \~65% for males aged 70-79.
+
+2.  The age-CVD gradient is steeper among smokers, indicating that smoking accelerates age-related cardiovascular damage.
+
+## Unexpected Discovery:
+
+The sex difference pattern is inconsistent across age groups, in the 40-49 age group, males have notably higher CVD (\~24% vs \~20%), but in the 50-59 group, females catch up significantly (\~42% vs \~35%). This suggests that smoking may have more pronounced effects on women's cardiovascular health in middle age, possibly due to interactions with hormonal changes.
+
+## Graph 3: Smoking Status, Age Group, and CVD by Sex (Mosaic Plot)
+
+## Key Findings:
+
+1.  The mosaic plot confirms strong associations between smoking, age, and CVD, with significant Pearson residuals (p \< 2.22e-16).
+
+2.  Blue-shaded tiles (positive residuals) indicate combinations that occur more frequently than expected, particularly CVD cases among older smokers.
+
+## Unexpected Discovery:
+
+Among young male non-smokers (18-29 age group), there's a strong blue shading for CVD=No, indicating this group has even fewer CVD cases than would be expected by chance. Conversely, there's notable red shading (negative residuals) for older female smokers without CVD, suggesting that smoking has particularly strong effects on older women's cardiovascular health, fewer escape CVD than statistical models would predict.
+
+## Graph 4: Smoking Status, Social Class, and CVD (Mosaic Plot)
+
+## Key Findings:
+
+1.  Social class shows strong associations with both smoking behavior and CVD risk (p \< 2.22e-16).
+
+2.  Current smokers in lower social classes (4-5) show strong positive residuals (blue shading) for CVD=Yes, indicating clustering of multiple risk factors.
+
+## Unexpected Discovery:
+
+Social class 1-2 (highest class) never-smokers show strong blue shading for CVD=No, they have even lower CVD rates than expected. However, the most striking finding is that former smokers in social class 4-5 show strong blue residuals for CVD=Yes, suggesting that even after quitting smoking, people in lower social classes continue to have elevated CVD risk. This indicates that smoking cessation alone may not eliminate the cardiovascular burden in socioeconomically disadvantaged populations, likely due to other persistent risk factors (diet, stress, healthcare access, environmental exposures).
+
+## Graph 5: Age vs Deprivation Score (Scatterplot)
+
+## Key Findings:
+
+1.  CVD cases (blue/teal points) are distributed across all deprivation levels and ages, but show higher concentration in older age groups.
+
+2.  The scatterplot reveals the full distribution of individuals rather than aggregated proportions.
+
+## Unexpected Discovery:
+
+There is no strong visible linear relationship between age and deprivation score, the points are fairly evenly distributed across the Carstairs scale at all ages. This is unexpected because it suggests that area deprivation and individual age are independent risk factors rather than correlated variables. People of all ages live in both deprived and affluent areas. Additionally, CVD cases appear across the entire deprivation spectrum, though visual inspection suggests slightly higher density in more deprived areas (positive Carstairs scores). This reinforces that while deprivation increases CVD risk at the population level, substantial numbers of people in affluent areas still develop CVD due to other risk factors.
+
+## Graph 3: Deprivation Level by Smoking Status and Sex (Box Plot)
+
+## Key Findings:
+
+1.  Both moderate and heavy smokers show higher median Carstairs scores (indicating more deprivation) compared to never-smokers and former smokers​
+
+2.  The pattern is consistent across both sexes, confirming the social gradient in smoking behavior
+
+## Unexpected Discovery:
+
+Former smokers show very similar deprivation distributions to never-smokers, rather than intermediate levels between never-smokers and current smokers. This suggests that smoking cessation may be more common among those in less deprived areas, or that people who successfully quit smoking may have different socioeconomic profiles than those who continue smoking. Additionally, the wide distribution and numerous outliers indicate substantial individual variation, many people in highly deprived areas don't smoke, and some in affluent areas do.

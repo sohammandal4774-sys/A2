@@ -1,0 +1,409 @@
+---
+title: "Cuisines"
+author: "Soham Shankar Mandal"
+date: "2025-10-20"
+format: html
+editor: visual
+categories: [code]
+---
+
+![](images/clipboard-2825763169.png)
+
+## Cuisuines
+
+EXPERIMENT OBJECTIVE:
+
+This study seeks to analyze the nutritional and temporal characteristics influencing recipe patterns across global cuisines, specifically examining distributions across cuisine types, calorie content, cooking time durations, and user rating levels to determine correlations between measurable recipe attributes and user satisfaction metrics.
+
+## 1. *Setting up R Packages*
+
+```{r}
+# SETUP CHUNK- LIBRARIES
+#| label: setup
+#| echo: false
+library(tidyverse)
+library(mosaic) 
+library(ggformula) 
+library(skimr) 
+library(janitor) 
+library(naniar) 
+library(visdat)
+library(tinytable) 
+library(DT) 
+library(crosstable) 
+library(RColorBrewer)
+library(naniar)
+library(tidyr)
+library(dplyr)
+library(tastyR)
+library(correlation)
+library(ggplot2)
+
+```
+
+## 2. *Loading and Examining Data*
+
+```{r}
+data(package = "tastyR")
+dim(cuisines)
+dplyr::glimpse(cuisines)
+base::names(cuisines)
+utils::str(cuisines)
+cuisines
+```
+
+## 3. *Visualizing for Missing Data*
+
+```{r}
+visdat::vis_dat(cuisines)
+visdat::vis_miss(cuisines)
+glimpse(cuisines)
+```
+
+## 4. *Data Munging*
+
+```{r}
+cuisines_modified <- cuisines %>%
+  naniar::replace_with_na_all(condition = ~ .x %in% common_na_numbers) %>%
+  replace_with_na_all(condition = ~ .x %in% common_na_strings)
+glimpse(cuisines_modified)
+
+```
+
+```{r}
+cuisines_modified2  <- cuisines_modified %>%
+  dplyr::mutate(across(where(is.character), as.factor)) %>% 
+  dplyr::relocate(where(is.factor), .after = name)
+
+glimpse(cuisines_modified2)
+```
+
+## 5. *Data Dictionary*
+
+| Variable | Class | Description |
+|------------------------|------------------------|------------------------|
+| Name | Factor | Name of the recipe |
+| Country | Factor | Country or origin associated with the recipe/cuisine. |
+| URL | Factor | Direct link to the recipe page |
+| Author | Factor | Name of the contributor/author of the recipe. |
+| Ingredients | Factor | List or string of all ingredients required for the recipe. |
+| Date Published | Date | Date the recipe was first posted online. |
+| Calories | double | Calories per serving |
+| Fat | double | Total fat content in grams per serving |
+| Carb | double | Carbohydrate content in grams per serving. |
+| Protein | double | Protein content in grams per serving |
+| Average Rating | double | Average star rating given by users (1–5) |
+| Total Ratings | double | Total Ratings for the recipe |
+| Reviews | double | Number of user reviews or ratings |
+| Preperation Time | double | Preparation time in minutes |
+| Cooking Time | double | Cooking time in minute |
+| Total Time | double | Total estimated time for the recipe |
+| Servings | double | Number of servings the recipe makes |
+
+## 6. *Tiny Table*
+
+```{r}
+cuisines_modified2 %>%
+  head(10) %>%
+  tinytable::tt(caption = "Cuisines (Clean)") %>%
+  tinytable::theme_html(class = "table table-hover table-striped table-condensed") %>%
+  style_tt(fontsize = 0.8) %>%
+  stats::setNames(c("Name", "Country", "URL", "Author", "Ingredients", "Date Published", "Calories", "Fat", "Carb", "Protein", "Average Rating", "Total ratings","Reviews", "Preperation Time", "Cooking Time", "Total Time", "Servings"))
+```
+
+```{r}
+cuisines_modified2 %>% 
+tt()
+```
+
+## 7. *Summaries*
+
+```{r}
+cuisines_modified2 %>% skimr::skim()
+inspect_output <- cuisines_modified2 %>% mosaic::inspect()
+inspect_output[[1]] %>% tt()
+```
+
+```{r}
+cuisines_modified2 %>%
+  dplyr::count(ingredients) %>%
+  tt()
+```
+
+```{r}
+cuisines_modified2 %>%
+  dplyr::count(country) %>%
+  tt()
+```
+
+```{r}
+cuisines_modified2 %>%
+  dplyr::count(prep_time) %>%
+ tt()
+```
+
+```{r}
+cuisines_modified2 %>%
+  dplyr::count(avg_rating) %>%
+  tt()
+```
+
+```{r}
+cuisines_modified2 %>%
+  count(across(where(is.character))) %>%
+  tt()
+```
+
+```{r}
+cuisines_modified2 %>%
+  dplyr::summarise(across(
+    .cols = c(prep_time, cook_time), # select columns
+
+    .fns = list(
+      mean = ~ mean(., na.rm = T),
+      sd = sd,
+      min = min,
+      max = max
+    )
+  ))
+```
+
+## 8. Graphs
+
+## 1. What is the distribution of recipes across countries?
+
+```{r}
+gf_bar(country ~ ., data = cuisines_modified2) %>%
+  gf_labs(title = "Distribution of Recipes Across Global Cuisine")
+```
+
+## 2. Which cuisines have the highest number of high-calorie dishes?
+
+```{r}
+cuisines_modified2 %>%
+  mutate(high_cal = calories > 600) %>%  
+  group_by(country) %>%
+  dplyr::summarise(high_cal_count = sum(high_cal, na.rm = TRUE)) %>%
+  arrange(desc(high_cal_count)) %>%
+  gf_col(reorder(country, high_cal_count) ~ high_cal_count, 
+         fill = ~country) %>%
+  gf_labs(title = "Number of High-Calorie Dishes by Cuisine",
+          y = "Cuisine Type", 
+          x = "High-Calorie Recipe Count")
+```
+
+```{r}
+cuisines_describe <- inspect(cuisines_modified2)
+
+cuisines_describe$categorical %>%
+  tt(theme = "striped")
+```
+
+```{r}
+cuisines_describe <- inspect(cuisines_modified2)
+
+cuisines_describe$quantitative %>%
+  tt(theme = "striped")
+```
+
+## 3. How does calorie content vary across different cuisines, and what is its relationship with average ratings?
+
+```{r}
+gf_point(country ~ calories, data = cuisines_modified2, 
+         color = ~avg_rating, alpha = 0.6) %>%
+  gf_smooth(method = "lm", se = FALSE, color = "black", 
+            linetype = "dashed") %>%
+  gf_labs(title = "Relationship between Calories and Country's Cuisine by Average Rating",
+          x = "Calories per Serving",
+          y = "Country's cuisine",
+          color = "avg_rating")
+  
+```
+
+## 4. Is there a relationship between cooking time and recipe ratings?
+
+```{r}
+
+gf_point(country ~ total_time, data = cuisines_modified2, 
+         color = ~avg_rating, alpha = 0.7, size = 2.5) %>%
+  gf_smooth(method = "lm", se = TRUE, color = "darkgray", 
+            linetype = 2, linewidth = 0.8) %>%
+  gf_labs(title = "Cooking Time vs Cuisine Type by Recipe Rating",
+          x = "Total Cooking Time (minutes)",
+          y = "Cuisine Type",
+          color = "Average Rating") %>%
+  gf_refine(scale_color_gradient(low = "red", high = "darkgreen"))
+```
+
+## 5. How are recipe ratings distributed across different cuisines?
+
+```{r}
+cuisines_modified2 %>%
+  gf_histogram(~avg_rating, fill = ~country, color = "black", alpha = 0.3) %>%
+  gf_labs(
+    title = "Distribution of Average Ratings by Country",
+    caption = "ggformula"
+  )
+
+```
+
+## 6. How does the distribution of calorie content differ across cuisine types?
+
+```{r}
+gf_boxplot(country ~ calories, data = cuisines_modified2, 
+           fill = ~country) %>%
+  gf_labs(title = "Distribution of Calorie Counts by Cuisine",
+          y = "Country",
+          x = "Calories per Serving")
+```
+
+```{r}
+cor <- correlation::correlation(cuisines_modified2)
+cor
+```
+
+## 7. Which recipe characteristics are most strongly correlated with average ratings?
+
+```{r}
+cor %>%
+  filter(Parameter1 == "avg_rating") %>%
+  gf_errorbar(CI_low + CI_high ~ reorder(Parameter2, r),
+    width = 0.5
+  ) %>%
+  gf_point(r ~ reorder(Parameter2, r), size = 4, color = "purple") %>%
+  gf_hline(yintercept = 0, color = "yellow", linewidth = 2) %>%
+  gf_labs(
+    title = "Correlation Errorbar Chart",
+    subtitle = "Target variable: Average Rating",
+    x = "Predictor Variable",
+    y = "Correlation Score with Average Rating"
+  )
+```
+
+## 9. *Final Summary*
+
+## Graph 1: Distribution of Recipes Across Global Cuisine
+
+## Key Findings:
+
+1.  Vietnamese, Thai, Russian, and Indian cuisines dominate the dataset with 60+ recipes each.
+
+2.  Most cuisines cluster between 30-70 recipes, showing relatively balanced representation.
+
+3.  Belgian and Swiss cuisines have minimal representation (under 10 recipes).
+
+## Unexpected Discoveries:
+
+1.  Russian cuisine has surprisingly high recipe count (similar to popular Asian cuisines), which is unexpected given its lower global visibility compared to Thai or Indian food.
+
+2.  Soul Food and Southern Recipes are categorized separately from general American cuisine, showing dataset's attention to regional distinctions.
+
+## Graph 2: High-Calorie Dishes by Cuisine
+
+## Key Findings:
+
+1.  Cajun/Creole cuisine leads with \~18 high-calorie (\>600 kcal) dishes.
+
+2.  Vietnamese, Thai, Southern Recipes, Spanish, and Chinese cuisines all have 12-15 high-calorie offerings.
+
+3.  Many cuisines (Swedish, South African, Israeli, Chilean at bottom) have zero high-calorie recipes in the dataset.
+
+## Unexpected Discoveries:
+
+1.  Vietnamese cuisine appears at the top despite typically being perceived as lighter, healthier food, unexpected finding.
+
+2.  Traditional "heavy" cuisines like German and French show moderate high-calorie counts (8-10), less than expected.
+
+3.  The stark difference between cuisines (0 vs 18 recipes) suggests either dataset imbalance or genuine cultural differences in rich dish frequency.
+
+## Graph 3: Calories vs Cuisine by Rating
+
+## Key Findings:
+
+Most recipes across all cuisines fall between 200-800 calories per serving.
+
+High-rated recipes (lighter blue, rating \~5) appear across the full calorie spectrum.
+
+Cuban, Portuguese, and Colombian cuisines show the widest calorie ranges with outliers exceeding 2,000 calories.
+
+## Unexpected Discoveries:
+
+1.  Several extreme outliers reach 2,000+ calories per serving, surprisingly high for single-serving recipes.
+
+2.  Lower-rated recipes (darker blue) don't cluster around specific calorie ranges, suggesting calorie content doesn't strongly predict ratings.
+
+3.Vietnamese cuisine, despite high recipe count, shows relatively tight calorie clustering around lower ranges.
+
+## Graph 4: Cooking Time vs Cuisine by Rating
+
+## Key Findings:
+
+1.  Most recipes across all cuisines cluster under 500 minutes (8 hours) of total cooking time.
+
+2.  High-rated recipes (dark green, rating \~5) appear consistently across short and long cooking times.
+
+3.Extreme outliers exist at 5,000-15,000+ minutes for cuisines like Canadian, Finnish, Russian, Korean, and Amish/Mennonite.
+
+## Unexpected Discoveries:
+
+1.  Some recipes exceed 10,000 minutes (\~7 days) of cooking time, likely fermentation, curing, or aging processes (Amish/Mennonite showing extreme duration).
+
+2.  No clear correlation between cooking time and rating,quick recipes can be just as highly rated as time-intensive ones.
+
+3.  German cuisine shows particularly wide time variation with multiple outlier recipes.
+
+## Graph 5: Average Rating Distribution by Country
+
+## Key Findings:
+
+1.  Ratings show extreme positive skew, most recipes cluster between 4.0-5.0 stars.
+
+2.  Very few recipes rated below 3.0, with minimal representation under 4.0.
+
+3.  The distribution peaks sharply around 4.5 stars across all cuisines.
+
+## Unexpected Discoveries:
+
+1.  Remarkably homogeneous rating patterns across all 50+ cuisines, no cuisine consistently performs better or worse.
+
+2.  The lack of low-rated recipes (under 3.0) suggests potential selection bias in the dataset or that only successful recipes make it into collections.
+
+3.  Rating distribution doesn't reflect cuisine popularity or difficulty, contradicting expectations that complex cuisines might receive more varied feedback.
+
+## Graph 6: Calorie Distribution by Cuisine
+
+## Key Findings:
+
+1.  Median calorie content is remarkably consistent across most cuisines (around 300-500 calories).
+
+2.  Vietnamese, Turkish, Swiss, and Swedish cuisines show the tightest distributions with fewer outliers.
+
+3.  Southern Recipes, Spanish, and Soul Food show highest variability with numerous high-calorie outliers.
+
+## Unexpected Discoveries:
+
+1.  Malaysian, Israeli, and Italian cuisines have exceptionally wide ranges with multiple extreme outliers reaching 1,500-2,000+ calories.
+
+2.  Amish and Mennonite cuisine shows surprisingly low and consistent calorie content despite stereotypes about rich, hearty foods.
+
+3.  Colombian cuisine has the widest interquartile range, suggesting highly diverse recipe types.
+
+## Graph 7: Correlation Analysis with Average Rating
+
+## Key Findings:
+
+1.  Number of reviews shows strongest positive correlation with ratings (r ≈ 0.10).
+
+2.  Total_ratings also positively correlates (r ≈ 0.08).
+
+3.  All cooking-related variables (cook_time, prep_time, total_time) show near-zero or slightly positive correlations.
+
+## Unexpected Discoveries:
+
+1.  Servings shows negative correlation with rating (r ≈ -0.06), recipes serving more people tend to rate slightly lower, counterintuitive finding.
+
+2.  All correlations are surprisingly weak (all under 0.15), indicating recipe ratings are largely independent of measurable recipe characteristics.
+
+3.  The confidence intervals for all variables cross or approach zero, suggesting most relationships aren't statistically significant.
+
+4.  Reviews/ratings variables correlate with average_rating more than actual recipe features (time, servings), suggesting rating behavior is more social than quality-based.
