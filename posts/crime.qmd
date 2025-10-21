@@ -1,0 +1,377 @@
+---
+title: "Crime"
+author: "Soham Shankar Mandal"
+date: "2025-10-21"
+format: html
+editor: visual
+categories: [code]
+---
+
+![](images/clipboard-4118626908.png)
+
+## Crime Offenders
+
+EXPERIMENT OBJECTIVE:
+
+This study aims to investigate the relationship between offender demographic characteristics (age, gender, race), criminal history patterns (prior conviction counts, juvenile offense records), and standardized risk assessment scores (decile and violent decile scores) on two-year recidivism outcomes, with particular emphasis on evaluating the accuracy and potential bias of algorithmic risk assessment instruments used in criminal justice decision-making.
+
+## 1. *Setting up R Packages*
+
+```{r}
+# SETUP CHUNK- LIBRARIES
+#| label: setup
+#| echo: false
+library(tidyverse)
+library(mosaic) 
+library(ggformula) 
+library(skimr) 
+library(janitor) 
+library(naniar) 
+library(visdat)
+library(tinytable) 
+library(DT) 
+library(crosstable) 
+library(RColorBrewer)
+library(naniar)
+library(tidyr)
+library(dplyr)
+library(DataSetsVerse)
+library(ggplot2)
+library(ggmosaic)
+```
+
+```{r}
+DataSetsVerse()
+
+```
+
+## 2. *Loading Data*
+
+```{r}
+data(package = "crimedatasets")
+```
+
+## 3. *Examining the Dataset*
+
+```{r}
+glimpse(crimOffenders_df)
+```
+
+```{r}
+dplyr::glimpse(crimOffenders_df)
+```
+
+```{r}
+skimr::skim(crimOffenders_df)
+```
+
+```{r}
+crimOffenders_dfmodified <- crimOffenders_df %>%
+   tidyr::drop_na()
+
+
+glimpse(crimOffenders_dfmodified)
+```
+
+## 4. *Data Dictionary*
+
+| Variable | Class | Description |
+|----|----|----|
+| age | Double | Age of the offender |
+| juv_fel_count | Double | Number of juvenile felonies committed |
+| decile_score | Double | COMPAS risk assessment decile score (1–10) |
+| juv_misd_count | Double | Number of juvenile misdemeanors committed |
+| juv_other_count | Double | Number of other juvenile offenses |
+| v_decile_score | Double | Predicted decile score for violent offenses |
+| priors_count | Double | Total number of prior adult crimes |
+| sex | Factor | Gender of the offender |
+| two_year_recid | Factor | Whether the offender reoffended within two years |
+| race | Factor | Race of the offender |
+| c_jail_in | Double | Normalized numeric date for jail entry (0–1 scale) |
+| c_jail_out | Double | Normalized numeric date for jail release (0–1 scale) |
+| c_offense_date | Double | Normalized numeric date the offense was committed |
+| screening_date | Double | Numeric or date when offender was screened |
+| in_custody | Double | Date when the offender entered custody (normalized between 0–1) |
+| out_custody | Double | Date when the offender was released from custody (normalized between0–1) |
+
+## 5. *Graphs*
+
+## 1. What is the distribution of two-year recidivism rates across different decile score categories?
+
+```{r}
+
+gf_bar(~factor(decile_score), 
+       fill = ~two_year_recid, 
+       data = crimOffenders_df,
+       position = "dodge") %>%
+  gf_labs(title = "Two-Year Recidivism by Risk Assessment Decile Score",
+          x = "Decile Score (1 = Lowest Risk, 10 = Highest Risk)",
+          y = "Count of Individuals",
+          fill = "Recidivated")
+
+```
+
+## 2. Which gender category shows a higher number of recorded offenses?
+
+```{r}
+gf_bar(~sex, data = crimOffenders_df, fill = ~sex) %>%
+  gf_labs(title = "Distribution of Recorded Offenses by Gender",
+          x = "Gender",
+          y = "Count of Individuals") %>%
+  gf_theme(theme_minimal())
+```
+
+## 3. Are prior offense counts disproportionately concentrated among repeat offenders?
+
+```{r}
+gf_histogram(~priors_count, data = crimOffenders_df, 
+             bins = 30,
+             fill = "skyblue", 
+             color = "black") %>%
+  gf_labs(title = "Distribution of Prior Offense Counts",
+          x = "Number of Prior Offenses",
+          y = "Count of Individuals")
+```
+
+## 4. How is the distribution of age across all offenders?
+
+```{r}
+gf_histogram(~age, data = crimOffenders_df, 
+             binwidth = 5,
+             fill = "coral", 
+             color = "black") %>%
+  gf_labs(title = "Age Distribution of Criminal Offenders",
+          x = "Age (years)",
+          y = "Count of Individuals")
+```
+
+## 5. How does overall criminal risk vary across different levels of violent recidivism risk?
+
+```{r}
+
+crimOffenders_df <- crimOffenders_df %>%
+  mutate(violence_category = cut(v_decile_score,
+                                 breaks = c(0, 3, 6, 10),
+                                 labels = c("Low Violence Risk", 
+                                           "Medium Violence Risk", 
+                                           "High Violence Risk")))
+gf_boxplot(decile_score ~ violence_category, 
+           data = crimOffenders_df,
+           fill = ~violence_category,
+           color = "black") %>%
+  gf_labs(title = "General Risk Scores Across Violence Risk Categories",
+          x = "Violence Risk Category",
+          y = "General Decile Score",
+          fill = "Violence Category")
+```
+
+## 6. Is there a negative correlation between offender age and violent recidivism risk score, suggesting that younger individuals are more likely to commit violent offenses?
+
+```{r}
+gf_point(decile_score ~ age, 
+         data = crimOffenders_df,
+         color = ~race,
+         alpha = 0.6) %>%
+  gf_lm(decile_score ~ age,
+        color = "black",
+        linetype = "dashed",
+        se = FALSE) %>%
+  gf_labs(title = "Offender Age vs Risk assessment decile score by Race of offender",
+          x = "Age of Offender",
+          y = "Risk assessment decile score")
+
+```
+
+## 6. How does the relationship between race and two-year recidivism vary across gender categories?
+
+```{r}
+
+recidivism_mosaic <- crimOffenders_df %>%
+  mutate(
+    race_category = factor(race),
+    recidivism_status = factor(two_year_recid, 
+                               levels = c("No", "Yes"),
+                               labels = c("No", "Yes")),
+    gender = factor(sex,
+                   levels = c("Male", "Female"),
+                   labels = c("Male", "Female"))
+  )
+
+mosaic_table <- xtabs(~ race_category + recidivism_status + gender, 
+                       data = recidivism_mosaic)
+
+vcd::mosaic(~ race_category + recidivism_status | gender,
+            data = mosaic_table,
+            main = "Race and Two-Year Recidivism by Gender",
+            shade = TRUE,
+            legend = TRUE,
+            labeling_args = list(
+              set_varnames = c(
+                race_category = "Race",
+                recidivism_status = "Two-Year Recidivism",
+                gender = "Gender"
+              )
+             
+            ))
+
+```
+
+## 6. Summary
+
+## Graph 1. Two-Year Recidivism by Risk Assessment Decile Score
+
+## Key Findings:
+
+1.  At the lowest risk scores (1-2), individuals who did not recidivate significantly outnumber those who did.
+
+2.  As decile scores increase from 3-10, the proportion of individuals who recidivated increases steadily.
+
+3.  At the highest risk scores (8-10), recidivism rates are approximately equal to or higher than non-recidivism rates.
+
+4.  The pattern validates the predictive accuracy of the risk assessment tool.
+
+## Unexpected Discoveries:
+
+1.  Even at decile score 1 (lowest risk), there are still approximately 250 individuals who recidivated, suggesting the tool has false negatives.
+
+2.  Conversely, at decile score 10 (highest risk), there are still around 50-100 individuals who did NOT recidivate, indicating false positives.
+
+3.  Decile scores 4-6 show relatively balanced recidivism outcomes, suggesting this middle range has the highest uncertainty.
+
+4.  The total number of non-recidivists is higher across nearly all decile scores, meaning overall recidivism rates in this sample are relatively moderate (not overwhelming).
+
+## Graph 2. Distribution of Recorded Offenses by Gender
+
+## Key Findings:
+
+1.  Males account for approximately 4,800-5,000 recorded offenses.
+
+2.  Females account for approximately 1,100-1,200 recorded offenses.
+
+The male-to-female ratio is approximately 4:1 or 5:1, meaning males represent roughly 80% of all recorded offenses.
+
+This stark gender disparity is consistent with criminological research showing higher male involvement in criminal activity.
+
+## Unexpected Discoveries:
+
+1.  The gender gap is even larger than expected, with males representing an overwhelming majority.
+
+2.  Despite representing only \~20% of offenders, the female offender population is still substantial (over 1,000 individuals), indicating this is not a negligible demographic.
+
+3.  The visualization reveals no evidence of gender balance in criminal justice involvement, suggesting systemic or behavioral differences.
+
+4.  The large disparity raises questions about whether this reflects actual criminal behavior differences, arrest/prosecution biases, or both.
+
+## Graph 3. Distribution of Prior Offense Counts
+
+## Key Findings:
+
+1.  The distribution is heavily right-skewed, with over 2,000 individuals having zero prior offenses
+
+2.  Approximately 1,000-1,100 individuals have 1-2 prior offenses.
+
+3.  There is a sharp decline in frequency as prior offense counts increase.
+
+4.  The vast majority of offenders have fewer than 10 prior convictions.
+
+5.  A small number of chronic offenders have 20-40+ prior offenses.
+
+## Unexpected Discoveries:
+
+1.  Over one-third of the dataset consists of first-time offenders (zero priors), which is surprisingly high for a criminal justice dataset.
+
+2.  The distribution shows a long tail extending to 38+ priors, indicating a small population of extremely prolific repeat offenders.
+
+3.  The data suggests that most individuals in the criminal justice system are not career criminals, contradicting common assumptions about recidivism.
+
+## Graph 4. Age Distribution of Criminal Offenders
+
+## Key Findings:
+
+1.  The age distribution shows a clear right-skewed pattern with a peak in the 25-30 age range.
+
+2.  The majority of offenders are between ages 20-40, with approximately 1,300+ individuals in the peak age bracket.
+
+3.  There is a steady decline in offender counts as age increases beyond 30.
+
+4.  Very few offenders are over age 70, and the distribution approaches zero by age 80.
+
+## Unexpected Discoveries:
+
+1.  There are surprisingly few teenage offenders (under 20) in this dataset, with fewer than 700 in the 18-25 bracket—this could indicate the dataset excludes juvenile offenders.
+
+2.  The modal age is in the mid-20s, not early 20s as might be expected based on crime statistics.
+
+3.  The distribution shows a gradual rather than sharp decline after age 30, indicating criminal activity persists well into middle age.
+
+4.  There's a notable population of older offenders (50-70), suggesting that some individuals remain criminally active or are caught later in life.
+
+## Graph 5. General Risk Scores Across Violence Risk Categories
+
+## Key Findings:
+
+1.  There is a strong positive relationship between violence risk category and general risk scores.
+
+2.  Low violence risk individuals have a median general decile score around 2, with most scores between 1-4.
+
+3.  Medium violence risk individuals have a median score around 6, with an IQR of approximately 4-7.
+
+4.  High violence risk individuals have a median score around 8, with most scores between 7-10.
+
+5.  The boxplots show minimal overlap between categories, indicating violence risk and general risk are highly correlated.
+
+## Unexpected Discoveries:
+
+1.  The separation between categories is remarkably clean, suggesting the two risk assessment tools (violent and general) are measuring overlapping constructs rather than independent dimensions.
+
+2.  There are outliers in the low violence risk category with general risk scores of 9-10, indicating some individuals pose high general criminal risk but low violence risk—these may be prolific non-violent offenders.
+
+3.  The high violence risk category has very few low-scoring outliers, suggesting violent offenders rarely have low general risk scores.
+
+4.  The strong correlation raises questions about whether separate violence risk assessments add predictive value beyond general risk assessment, or if they're redundant measures.
+
+## Graph 6. Offender Age vs Risk Assessment Decile Score by Race of Offender
+
+##Key Findings:
+
+1.  There is a clear negative correlation between age and risk assessment scores, indicated by the downward-sloping dashed regression line
+
+2.  Risk scores are heavily concentrated in the 1-10 range across all age groups, with most data points clustered between ages 20-50
+
+3.  The relationship holds consistently across all racial categories (African-American, Asian, Caucasian, Hispanic, Native American, Other)
+
+4.  Younger offenders (ages 18-30) consistently receive higher risk scores, with many scoring in the 6-10 range
+
+## Unexpected Discoveries:
+
+1.  The strength of the age-risk relationship appears universal across races, with no obvious racial group showing a different age-risk pattern.
+
+2.  There are surprisingly few very young offenders (under 20) and elderly offenders (over 70) in the dataset.
+
+3.  The scatter plot shows significant overlap of all racial groups at every age point, suggesting age is a more dominant predictor than race for risk scores.
+
+4.  Some older offenders (60+) still receive moderate-to-high risk scores (5-7), which is unexpected given the strong age-risk inverse relationship.
+
+## Graph 7. Race and Two-Year Recidivism by Gender
+
+## Key Findings:
+
+1.  The mosaic plot shows dramatic gender differences, with the male panel significantly larger than the female panel, reflecting the 4:1 gender ratio in the dataset.
+
+2.  African-American males represent the largest single demographic group (largest area in the plot).
+
+3.  For males, there are significant Pearson residuals (color-coded) indicating departures from independence between race and recidivism.
+
+4.  Blue shading (positive residuals) in certain cells indicates higher-than-expected recidivism or non-recidivism rates.
+
+5.  Red/pink shading (negative residuals) indicates lower-than-expected rates
+
+## Unexpected Discoveries:
+
+1.  The female panel shows relatively uniform shading (mostly gray/neutral), suggesting the race-recidivism relationship may be weaker or non-significant for women.
+
+2.  For African-American males, there appears to be negative residuals (red) for "No" recidivism, suggesting they are recidivating at higher-than-expected rates under the independence model.
+
+3.  Caucasian males show positive residuals (blue) in the "No" recidivism category, indicating lower-than-expected recidivism rates
+
+4.  The mosaic reveals that gender may moderate the race-recidivism relationship, with racial disparities appearing more pronounced among males than females.

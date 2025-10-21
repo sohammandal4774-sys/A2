@@ -1,0 +1,379 @@
+---
+title: "ALBATROSS MIGRATION"
+author: "Soham Shankar Mandal"
+date: "2025-10-21"
+format: html
+editor: visual
+categories: [code]
+---
+
+![](images/clipboard-2549688924.png)
+
+## Albatross migration 
+
+EXPERIMENT OJECTIVE:
+
+This study analyzes GPS tracking data from Galápagos Albatrosses to characterize their migration patterns, behavioral ecology, and movement dynamics. Using spatial point locations and trajectory lines collected from GPS tags, the research examines key variables including flight speed, altitude, heading direction, GPS accuracy (HDOP), battery performance, and ambient temperature to distinguish between resting and active flight behaviors.
+
+## 1. *Setting up R Packages*
+
+```{r}
+# SETUP CHUNK- LIBRARIES
+#| label: setup
+#| echo: false
+library(sf)
+library(dplyr)
+library(tmap)
+library(lubridate)
+library(tidyr)
+library(tidyverse)
+library(mosaic) 
+library(ggformula) 
+library(skimr) 
+library(janitor) 
+library(naniar) 
+library(visdat)
+library(tinytable) 
+library(DT) 
+library(crosstable) 
+library(RColorBrewer)
+```
+
+These packages allow us to read spatial data, process large datasets, and create maps and plots.
+
+## 2. Data Loading
+
+We imported two datasets:
+
+```{r}
+locations <- st_read("/Users/Soham Shankar Mandal/Desktop/sem 3, statistics/A2_Soham Shankar Mandal/posts/data/Galapagos Albatrosses/Galapagos Albatrosses/points.shp")
+
+tracks <- st_read("/Users/Soham Shankar Mandal/Desktop/sem 3, statistics/A2_Soham Shankar Mandal/posts/data/Galapagos Albatrosses/Galapagos Albatrosses/lines.shp")
+```
+
+locations: GPS points of where birds were recorded.
+
+tracks: Lines showing the migration path followed by the birds.
+
+## 3. *Data Inspection*
+
+Glimpse of Locations
+
+```{r}
+glimpse(locations)
+```
+
+### Key Findings:
+
+Many columns contain only a single repeated value (e.g., individual, study_name).
+
+Some columns (date, time) contain missing values (NA).
+
+Glimpse of Tracks
+
+```{r}
+glimpse(tracks)
+```
+
+### Key Findings:
+
+Simple lines dataset with bird paths.
+
+No missing values; each line corresponds to a migration trajectory.
+
+## 4. Missing Values Check
+
+```{r}
+colSums(is.na(locations))
+```
+
+### Key Findings:
+
+Missing values are only in date and time columns.
+
+Other variables are complete.
+
+Action: Remove date and time columns:
+
+
+```{r}
+locations_clean <- locations %>% 
+  select(-date, -time)
+
+glimpse(locations_clean)
+```
+
+## 5. Unique Values Check
+
+```{r}
+unique(locations_clean$individual)
+```
+
+### Key Findings:
+
+individual column has only one value → not useful.
+
+Other columns with a single value include type_of_fi, visible, sensor_typ, study_name, status.
+
+Action: Remove all columns with only one unique value:
+
+locations_clean \<- locations %\>% select(-date, -time, -type_of_fi, -visible, -sensor_typ, -individual, -study_name, -status)
+
+### Verification:
+
+```{r}
+locations_clean %>%
+  st_drop_geometry() %>%
+  summarise_all(n_distinct)
+```
+
+| Variable Name | Data Type | Description | Units/Format | Usage Notes |
+|--------------|--------------|--------------|--------------|-------------------|
+| timestamp | Character (<chr>) | Date and time when the GPS location was recorded (the GPS fix) | Datetime string | Requires conversion: Usestrptime()orlubridate::ymd_hms()to convert to POSIXct datetime object for temporal analysis |
+| long | Numeric (<dbl>) | Longitude coordinate representing East/West geographic position | Decimal degrees (°) | Used withlatto create spatial points; values typically range -180° to +180° |
+| lat | Numeric (<dbl>) | Latitude coordinate representing North/South geographic position | Decimal degrees (°) | Used withlongto create spatial points; values typically range -90° to +90° |
+| battery_vo | Numeric (<dbl>) | Current battery voltage of the GPS tracking tag | Millivolts (mV) | Monitor to identify potential tag failure; declining values indicate battery depletion |
+| fix_batter | Numeric (<dbl>) | Battery voltage measured at the moment of GPS fix acquisition | Millivolts (mV) | Can be compared withbattery_voto assess power consumption during fix acquisition |
+| horizontal | Numeric (<dbl>) | Horizontal Dilution of Precision (HDOP) - GPS accuracy metric | Dimensionless | Lower values indicate higher positional accuracy; values \>5 suggest poor accuracy; \<2 indicates excellent accuracy |
+| key_bin_ch | Numeric (<dbl>) | Internal checksum or binary key for data validation | Dimensionless | Internal logging field; not typically used in movement analysis |
+| speed_accu | Numeric (<dbl>) | Estimated error margin for speed measurement | Meters per second (m/s) | Indicates uncertainty inspeedcalculation; higher values suggest less reliable speed estimates |
+| start_time | Character (<chr>) | Timestamp when GPS sensor began searching for satellite signal | Datetime string | Compare withtimestampto calculate signal acquisition duration; convert to datetime for analysis |
+| temperatur | Numeric (<dbl>) | Ambient temperature recorded by the tracking tag | Degrees Celsius (°C) | Can be used to study thermoregulatory behavior or environmental conditions |
+| used_time\_ | Numeric (<dbl>) | Time required for GPS unit to acquire satellite signal and obtain location fix | Seconds (s) | Longer times may indicate poor satellite visibility (e.g., dense canopy, urban canyons) |
+| speed | Numeric (<dbl>) | Calculated instantaneous speed of the tracked animal | Meters per second (m/s) | Derived from successive GPS fixes; accuracy depends on fix interval and HDOP |
+| heading | Numeric (<dbl>) | Direction of travel (bearing) | Degrees (°) | Values range 0-360°, where 0° = North, 90° = East, 180° = South, 270° = West |
+| height | Numeric (<dbl>) | Altitude (elevation) above sea level | Meters (m) | Vertical position; accuracy typically lower than horizontal position due to GPS limitations |
+| tag_ident | Character (<chr>) | Unique identifier for the physical GPS tracking device | Alphanumeric code | In this dataset: All records from tag "138"; useful for multi-tag studies |
+| ind_ident | Character (<chr>) | Unique identifier for the individual animal being tracked | Alphanumeric code | In this dataset: All records from individual "4269-4831216"; enables individual-level analysis |
+| geometry | Spatial (\<POINT \[°\]\>) | sf package geometry column storing spatial coordinates as mappable point features | POINT geometry | Created fromlongandlat; enables spatial operations (distance, buffers, intersections) |
+
+### Key Findings:
+
+Remaining dataset has 17 columns with multiple unique values, ready for analysis.
+
+All are numeric except for spatial geometry (geometry column).
+
+## 6. *Graphs*
+
+## Graph 1: Distribution of GPS Accuracy (HDOP)
+
+```{r}
+ggplot(locations_clean, aes(x = horizontal)) +
+  geom_histogram(bins = 50, fill = "blue", alpha = 0.7)
+```
+
+### Key Findings:
+
+1.  Most GPS fixes have very low HDOP values (\<10), indicating **high accuracy**.
+2.  Very few points exceed HDOP \> 20, suggesting only minor unreliable data.
+
+### Unexpected Discoveries:
+
+1.  A few extreme HDOP outliers exist, but they are negligible compared to total fixes.
+2.  The majority of data points are clustered below 5, which is **better than expected** for wildlife GPS tracking.
+
+```{r}
+locations_filtered <- locations_clean %>%
+  filter(horizontal <= 10)
+
+glimpse(locations_filtered)
+```
+
+## Graph 2: Distribution of Albatross Speed
+
+```{r}
+ggplot(locations_filtered, aes(x = speed)) +
+  geom_histogram(bins = 50, fill = "red", alpha = 0.7)
+```
+
+### Key Findings:
+
+1.  Large spike near 0 m/s indicates **birds resting on water**.
+2.  Smaller spike around 10 m/s shows **flying/traveling behavior**.
+
+### Unexpected Discoveries:
+
+1.  The bimodal distribution clearly separates resting and flying, which wasn’t obvious from raw data.
+2.  Speeds above 20 m/s are rare, suggesting birds rarely achieve extreme flight speeds.
+
+## Graph 3: Time Spent Flying vs Resting
+
+```{r}
+locations_filtered %>%
+  mutate(activity = ifelse(speed < 1, "Resting", "Flying")) %>%
+  gf_bar(~activity, fill = ~activity) %>%
+  gf_labs(title = "Activity Distribution",
+          x = "Activity Type",
+          y = "Count")
+```
+
+### Key Findings:
+
+1.  Birds spend **majority of time resting** (floating on water).
+2.  Less frequent flying events indicate targeted long-distance movement.
+
+### Unexpected Discoveries:
+
+1.  Resting is dominant even in a migration dataset, showing that **migration is intermittent**.
+2.  Flying counts are lower than expected, revealing energy conservation behavior.
+
+------------------------------------------------------------------------
+
+## Graph 4: Altitude Over Time
+
+```{r}
+ggplot(locations_filtered, aes(x = timestamp, y = height)) +
+  geom_point(color = "darkblue")
+```
+
+### Key Findings:
+
+1.  Altitude mostly stays **below 100 meters**, with occasional peaks.
+2.  No clear seasonal change or daily pattern detected.
+
+### Unexpected Discoveries:
+
+1.  Some isolated high-altitude points may indicate **data noise or rare high flight events**.
+2.  Birds rarely achieve sustained high altitudes over the observation period.
+
+------------------------------------------------------------------------
+
+## Graph 5: Speed vs Altitude
+
+```{r}
+ggplot(locations_filtered, aes(x = speed, y = height)) +
+  geom_point(color = "purple")
+```
+
+### Key Findings:
+
+1.  Faster speeds generally occur at **moderate altitudes**.
+2.  Birds resting (0 m/s) can be at any low altitude, mostly near water surface.
+
+### Unexpected Discoveries:
+
+1.  No strong linear correlation between speed and height.
+2.  High-speed low-altitude flights suggest gliding or short bursts close to the water.
+
+------------------------------------------------------------------------
+
+## Graph 6: Altitude vs Ambient Temperature
+
+```{r}
+ggplot(locations_filtered, aes(x = temperatur, y = height)) +
+  geom_point(alpha = 0.1, color = "cyan4")
+```
+
+### Key Findings:
+
+1.  Temperature mostly ranges between 20-30°C.
+2.  Altitude is **not strongly influenced by ambient temperature**.
+
+### Unexpected Discoveries:
+
+1.  Some points show high-altitude flights at relatively low temperatures, possibly early mornings or sensor errors.
+2.  Weak relationship suggests environmental temperature has minimal effect on flight height.
+
+------------------------------------------------------------------------
+
+## Graph 7: Battery Voltage Over Time
+
+```{r}
+ggplot(locations_filtered, aes(x = as_datetime(timestamp), y = battery_vo)) +
+  geom_line(color = "darkorange")
+```
+
+### Key Findings:
+
+1.  Battery voltage remains **stable for most of the observation period**.
+2.  Slight decline observed toward the **end of deployment**, indicating battery aging.
+
+### Unexpected Discoveries:
+
+1.  No sudden drops in battery voltage, confirming **data reliability**.
+2.  Minor fluctuations could correlate with environmental temperature or sensor load.
+
+------------------------------------------------------------------------
+
+## Graph 8: Weekly Battery Health Distribution
+
+```{r}
+locations_filtered %>%
+  mutate(timestamp = as_datetime(timestamp),
+         week_group = as.factor(floor_date(timestamp, "week"))) %>%
+  ggplot(aes(x = week_group, y = battery_vo)) +
+  geom_boxplot(fill = "lightblue", outlier.color = "red")
+```
+
+### Key Findings:
+
+1.  Battery remains healthy **May through September**.
+2.  October shows slight battery decline with some outliers (red dots).
+
+### Unexpected Discoveries:
+
+1.  The boxplot highlights **small but visible decrease in battery voltage**, previously hard to detect from line plot alone.
+2.  Outlier fixes might correspond to periods of unreliable GPS readings.
+
+------------------------------------------------------------------------
+
+## Graph 9: Primary Flight Direction
+
+```{r}
+ggplot(locations_filtered, aes(x = heading)) +
+  # This creates bars for circular data
+  geom_histogram(breaks = seq(0, 360, by = 15), fill = "red", alpha = 0.8) +
+  
+  labs(
+    title = "Primary Flight Direction of Albatross",
+    x = "Heading (Compass Direction)",
+    y = "Count"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+ggplot(locations_filtered, aes(x = heading)) +
+  geom_histogram(breaks = seq(0, 360, by = 15), fill = "red", alpha = 0.8) +
+  coord_polar(start = 0) +
+  scale_x_continuous(breaks = c(0, 90, 180, 270), labels = c("N", "E", "S", "W"))
+```
+
+### Key Findings:
+
+1.  Majority of flight direction is **toward North**.
+2.  Some minor deviations toward East and West.
+
+### Unexpected Discoveries:
+
+1.  Almost all birds consistently follow the **same migratory path**, showing strong directional fidelity.
+2.  Polar visualization makes it much clearer than raw histogram.
+
+------------------------------------------------------------------------
+
+## Graph 10: Migration Map (Tracks + Locations)
+
+```{r}
+tmap_mode("plot")
+tm_shape(tracks) +
+  tm_lines(col = "blue") +
+  tm_shape(locations_filtered) +
+  tm_dots(col = "red", size = 0.05) +
+  tm_layout(title = "Galápagos Albatross Migration Map") +
+  tm_graticules() +
+  tm_compass() +
+  tm_scale_bar() +
+  tm_credits("Data: Movebank.org | Map by Soham Shankar Mandal")
+```
+
+### Key Findings:
+
+1.  Migration paths are **clearly visible**, with dense GPS points along the path.
+2.  Locations show frequent resting areas along routes.
+
+### Unexpected Discoveries:
+
+1.  Some tracks are **more concentrated near certain islands**, indicating preferred stopover areas.
+2.  Visualization confirms **northward migration pattern** observed in heading data.
+
+------------------------------------------------------------------------
